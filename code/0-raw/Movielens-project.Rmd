@@ -13,9 +13,9 @@ knitr::opts_chunk$set(echo = FALSE)
 
 How well can we predict how well someone will like a certain movie? The purpose of this project is to answer that by predicting the rating on a scale of 0.5 to 5 that users will give to movies. A model is tested which takes into account the impact of the individual movie, the impact of the individual user, and regularizes the ratings that are given to movies.
 
-The dataset which this model is trained and tested on is the Movielens dataset, which is a dataset of 10 million ratings that users have given to movies. This dataset contains the following pieces of data: the userId of the user who rated the movie, the movieId of the move rated, the rating given to the movie, the title of the move, and the genres that pertain to that movie. About 9 million observations were used to train the model (the "edx" dataset), with the remaining 1 million (the "validation" dataset) being used only for model validation.
+The dataset which this model is trained and tested on is the Movielens dataset, which is a dataset of 10 million ratings that users have given to movies. This dataset contains the following pieces of data: the userId of the user who rated the movie, the movieId of the move rated, the rating given to the movie, the title of the movie, and the genres that pertain to that movie. About 9 million observations were used to train the model (the "edx" dataset), with the remaining 1 million (the "validation" dataset) being used only for model validation.
 
-This project undertook the following key steps. First, the data was cleaned and explored. Second, the model was created. Third, the model was tested with Root Mean Square Error (RMSE) being used as the metric to judge how much the rating predicted by the model deviated from the actual rating given. It was found that the final model had an RMSE of .86511, meaning that the predicted movie ratings different from the actual ones by .86511 on average.
+This project undertook the following key steps. First, the data was cleaned and explored. Second, the model was created. Third, the model was tested with Root Mean Square Error (RMSE) being used as the metric to judge how much the rating predicted by the model deviated from the actual rating given. It was found that the final model had an RMSE of .86511, meaning that the predicted movie ratings were different from the actual ones by .86511 on average.
 
 **Methods and Analysis:**
 
@@ -72,7 +72,7 @@ str(edx)
 dim(edx)
 ```
 
-The edx dataset was briefly reviewed for NA values, outliers, and duplicates. It was found that there are no NA data points. After checking for duplicates, it was found that there are no duplicate values, as can be seen below.
+The edx dataset was briefly reviewed for NA values, outliers, and duplicates. It was found that there are no NA data points or outliers. After checking for duplicates, it was found that there are no duplicate values, as can be seen below.
 
 ```{r check for NAs, include=FALSE}
 #check for NAs in data
@@ -136,9 +136,10 @@ mean_by_yr %>% ggplot(aes(x = year, y = avg_rating)) +
   ggtitle("Figure 2: Rating vs. Time of Rating")
 ```
 
-In order to explore whether or not there is any relationship between the genre of the movie and its rating, the average rating for each genre was calculated. It appears that there is a genre impact, as some genres are rated higher than others, with the highest rated genre being Crime|Mystery|Thriller with an average rating of 4.20 and the lowest genre being Adventure|Children|Drama with an average rating of 2.79.
+In order to explore whether or not there is any relationship between the genre of the movie and its rating, the average rating for each genre was calculated. It appears that there is a genre impact, as some genres are rated higher than others. The 10 highest rated genres are shown below, with the highest rated genre being Crime|Mystery|Thriller having an average rating of 4.20.
 
-```{r eda genre}
+Figure 3: Top 10 Highest Rated Genres
+```{r eda genre & top 10}
 genres <- edx %>%
   group_by(genres) %>%
   summarize(n = n(),
@@ -148,14 +149,20 @@ genres <- edx %>%
 #top 10 genres by rating
 genres %>% top_n(10, avg_rating) %>%
   arrange(desc(avg_rating))
+```
+\newpage
+The 10 lowest rated genres are shown below, with the lowest genre being Adventure|Children|Drama with an average rating of 2.79.
 
+Figure 4: Bottom 10 Lowest Rated Genres
+```{r bottom 10 genres}
 #bottom 10 genres by rating
 genres %>% top_n(10, -avg_rating) %>%
   arrange(avg_rating)
 ```
 
+If someone were to ask me to predict how much a movie rating would differ from the average rating, my first question would be "What is the movie?" For this reason, I thought it made sense to start with a model that looks at the impact that the specific movie has on the rating, since of course good movies will get better reviews than bad ones. 
 
-If someone were to ask me to predict how much a movie rating would differ from the average rating, my first question would be "What is the movie?" For this reason, I thought it made sense to start with a model that looks at the impact that the specific movie has on the rating, since of course good movies will get better reviews than bad ones. The algorithm is: subtract the rating for movies with that particular feature from the mean rating, and take the mean of that difference as the impact of the feature. Then use that feature impact as a predictor. Next, repeat the process with the residuals of the mean and all other feature impacts already calculated from the algorithm. In this case, the feature impact we are looking at is the indiviual movie impact, so we subtract the rating for the individual movie from the mean rating, and then we take the mean of that.
+The algorithm is: subtract the rating for movies with that particular feature from the mean rating, and take the mean of that difference as the impact of the feature. Then use that feature impact as a predictor. Next, repeat the process with the residuals of the mean and all other feature impacts already calculated from the algorithm. In this case, the feature impact we are looking at is the indiviual movie impact, so we subtract the rating for the individual movie from the mean rating, and then we take the mean of that and use it as a predictor. The formula for this specific movie impact is spec_movie_dev = mean(rating - mean_edx), where mean_edx is the mean rating on the training set (Irizarry, 2019).
 
 ```{r calculate specific movie deviation}
 #calculate the expected rating deviation due to the specific film
@@ -169,7 +176,8 @@ edx <- edx %>%
 ```
 
 
-If I had to predict how a person would rate a movie knowing the movie title, I would then want to know more about the rater and how they rate other movies. For this reason, the expected deviation from the mean rating due to the user was included next in my model.
+If I had to predict how a person would rate a movie knowing the movie title, I would then want to know more about the rater and how they rate other movies. For this reason, the expected deviation from the mean rating due to the user was included next in my model. The formula for this impact is user_dev = mean(rating - mean_edx - spec_movie_dev) (Irizarry, 2019).
+
 
 ```{r calculate user deviation}
 #calculate the expected rating deviation due to the user	
@@ -182,7 +190,6 @@ edx <- edx %>%
   left_join(user_dev, by = "userId")
 ```
 
-Next I checked to see if regularization would improve my results. As Dr. Irizarry stated in his lectures, movies with few ratings are more likely to have large deviations from the mean (Irizarry, 2019). These extreme ratings given by only a few people are not representative of the rating that would be given by a larger number of people, and regularization can correct for this by penalizing ratings done by only a few people.
 
 ```{r rmse define variables, include = FALSE}
 #installs Metrics package for rmse calculation
@@ -201,7 +208,7 @@ predicted_rating_initial <- ifelse((mean_edx + edx$spec_movie_dev + edx$user_dev
 train_rmse_initial <- rmse(predicted_rating_initial, edx$rating)
 ```
 
-The RMSE before regularization is `r train_rmse_initial`. I believe a lower RMSE can be reached. I explore regularizing the specific movie and user deviations, using the formulas regul_spec_movie_dev = sum(rating = mean_edx)/(alpha + n) and regul_user_dev = sum(rating - mean_edx - regul_spec_movie_dev)/(a + n), where alpha is a sequence from 0 to 20 by 2 and n is the number of ratings.
+Predicted ratings were generated for each entry. Predictions greater than a 5 were reduced to 5, and predictions lower than 0.5 were increased to 0.5. The RMSE thus far is `r train_rmse_initial`. I believe a lower RMSE can be reached. I explore regularizing the specific movie and user deviations, using the formulas regul_spec_movie_dev = sum(rating = mean_edx)/(alpha + n) and regul_user_dev = sum(rating - mean_edx - regul_spec_movie_dev)/(a + n), where alpha is a sequence from 0 to 20 by 2 and n is the number of ratings (Irizarry, 2019). As Dr. Irizarry stated in his lectures, movies with few ratings are more likely to have large deviations from the mean (Irizarry, 2019). These extreme ratings given by only a few people are not representative of the rating that would be given by a larger number of people, and regularization can correct for this by penalizing ratings done by only a few people. 
 
 ```{r regularization to explore alpha}
 #define sequence of alphas to test
@@ -245,7 +252,7 @@ regularized_rmse <- sapply(alpha1, function(a) {
 }) 
 ```
 
-From observing the vector, it can be seen that 0 is the lowest alpha. 
+From observing the vector of the RMSE for each alpha, it can be seen that 0 is the lowest alpha. 
 
 ```{r}
 regularized_rmse
@@ -326,7 +333,7 @@ The optimal value for alpha is `r alpha_final`, which gives an RMSE of `r train_
 ```
 
 It appears that the RMSE is only slightly reduced by regularization on the training set. This model gives an RMSE on the **training** set of `r train_rmse_final`. This is a relatively low RMSE, so it's time to try my luck on the test set. For example, the winners of the Netflix competition, who were tasked with improving Netflix's recommendation algorithm, had an RMSE of .8713 on their winning algorithm (Koren, 2009). The final model is Predicted Rating = mean_edx + regul_spec_movie_dev + regul_user_dev + epsilon, where regul_spec_movie_dev is the regularized specific movie impact, regul_user_dev is the regularized user impact, and epsilon represents the residuals.
-\newpage
+
 **Results:**
 
 ```{r}
@@ -361,12 +368,12 @@ The RMSE of the final model was `r rmse`, meaning that the predicted rating devi
 
 This is a relatively low RMSE. Again, the winners of the Netflix competition had an RMSE of .8713 on their winning algorithm (Koren, 2009).
 
-Below is a histogram of the predicted ratings, with a histogram of the actual ratings below it (Figures 3, 4).
+Below is a histogram of the predicted ratings, with a histogram of the actual ratings below it (Figures 5, 6). It can be seen that the predicted ratings are generally close to the actual ratings.
 
 ```{r histograms of predicted vs. actual}
 #create histogram of predictions
-hist_pred <- hist(predicted_rating_final, main = "Figure 3: Histogram of Predicted Ratings")
-hist_real <- hist(validation$rating, main = "Figure 4: Histogram of Actual Ratings")
+hist_pred <- hist(predicted_rating_final, main = "Figure 5: Histogram of Predicted Ratings")
+hist_real <- hist(validation$rating, main = "Figure 6: Histogram of Actual Ratings")
 ```
 
 
