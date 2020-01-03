@@ -1,0 +1,40 @@
+#create data partition
+sample_index <- createDataPartition(y = edx$rating, times = 1,
+									p = 0.1, list = FALSE)
+sample_data <- edx[sample_index,]
+
+#calculate the expected rating deviation due to the specific film
+spec_movie_dev <- edx %>%
+	group_by(movieId) %>%
+	summarize(spec_movie_dev = mean(rating - mean_edx)
+
+#calculate the expected rating deviation due to the user	
+user_dev <- edx %>%
+	group_by(userId) %>%
+	summarize(user_dev = mean(rating - mean_edx - spec_movie_dev)
+
+#calculate the expected rating deviation due to the genre
+genre_dev <- edx %>%
+	group_by(genre) %>%
+	summarize(genre_dev = mean(rating - mean_edx - spec_movie_dev - user_dev)
+
+#genres: Comedy, Drama, Crime, War, Romance, Action, Adventure, Children, Film-Noir, Horror,
+#Thriller, Sci-Fi, Fantasy, Mystery
+#model genre effect
+edx <- edx %>%
+	mutate(comedy = ifelse(str_detect(genres, "Comedy"), 1, 0),
+			drama = ifelse(str_detect(genres, "Drama"), 1, 0),
+			crime = ifelse(str_detect(genres, "Crime"), 1, 0),
+			war = ifelse(str_detect(genres, "War"), 1, 0),
+			romance = ifelse(str_detect(genres, "Romance"), 1, 0),
+			action = ifelse(str_detect(genres, "Action"), 1, 0),
+			adventure = ifelse(str_detect(genres, "Adventure"), 1, 0),
+			children = ifelse(str_detect(genres, "Children"), 1, 0),
+			film_noir = ifelse(str_detect(genres, "Film-Noir"), 1, 0),
+			horror = ifelse(str_detect(genres, "Horror"), 1, 0),
+			thriller = ifelse(str_detect(genres, "Thriller"), 1, 0),
+			scifi = ifelse(str_detect(genres, "Sci-Fi"), 1, 0),
+			fantasy = ifelse(str_detect(genres, "Fantasy"), 1, 0),
+			mystery = ifelse(str_detect(genres, "Mystery"), 1, 0))
+			
+reg_genre <- lm(edx$rating ~ comedy + 

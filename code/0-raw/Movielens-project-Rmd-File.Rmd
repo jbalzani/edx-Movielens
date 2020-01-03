@@ -1,0 +1,384 @@
+---
+title: "Movielens Rmd File"
+author: "John Balzani"
+date: "1/3/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+Executive Summary:
+
+How well can we predict how well someone will like a certain movie? The purpose of this project is to answer that by predicting the rating on a scale of 0.5 to 5 that users will give to movies. A model is tested which takes into account the impact of the individual movie, the impact of the individual user, and regularizes the ratings that are given to movies.
+
+The dataset which this model is trained and tested on is the Movielens dataset, which is a dataset of 10 million ratings that users have given to movies. This dataset contains the following pieces of data: the userId of the user who rated the movie, the movieId of the move rated, the rating given to the movie, the title of the move, and the genres that pertain to that movie. About 9 million observations were used to train the model (the "edx" dataset), with the remaining 1 million (the "validation" dataset) being used only for model validation.
+
+This project undertook the following key steps. First, the data was cleaned and explored. Second, the model was created. Third, the model was tested with Root Mean Square Error (RMSE) being used as the metric to judge how much the rating predicted by the model deviated from the actual rating given. It was found that the final model had an RMSE of .86511, meaning that the predicted movie ratings different from the actual ones by .86511 on average.
+
+```{r import data, set up train and test sets, include=FALSE}
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+
+set.seed(1, sample.kind = "Rounding")
+
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+Methods and Analysis:
+
+```{r exploratory data analysis, include=FALSE}
+#exploratory data analysis
+str(edx)
+dim(edx)
+```
+
+The edx dataset was briefly reviewed for NA values, outliers, and duplicates. It was found that there are no NA data points. After checking for duplicates, it was found that there are no duplicate values.
+
+```{r check for NAs, include=FALSE}
+#check for NAs in data
+edx %>% filter(is.na(userId))
+edx %>% filter(is.na(movieId))
+edx %>% filter(is.na(rating))
+edx %>% filter(is.na(timestamp))
+edx %>% filter(is.na(title))
+edx %>% filter(is.na(genres))
+```
+
+```{r check for duplicates}
+#check for duplicates
+duplicates <- edx[duplicated(edx), ]
+duplicates
+```
+
+In order to check for outliers and to get a better sense of the data, a boxplot was generated of the ratings (Figure 1). Boxplots were not generated for the other variables as they would not be particularly informative.The maximum and minimum values of rating were also found, to ensure that they were within the limits of what users could rate movies at. 
+
+#```{r boxplot of rating: look for outliers}
+#check for outliers
+#boxplot(edx$rating, main = "Figure 1: Boxplot of Ratings", ylab = "Rating")
+#```
+
+```{r min max of rating, include=FALSE}
+#calculate min and max of rating
+min(edx$rating)
+max(edx$rating)
+```
+
+```{r mean median sd edx}
+mean_edx <- mean(edx$rating)
+median_edx <- median(edx$rating)
+sd_edx <- sd(edx$rating)
+```
+
+When exploring the data, it can be noticed that the ratings vary from 0.5 to 5, with a rating of 4 being most common, followed by a rating of a 3, and then a rating of a 5 (Figure 1). It seems that positive ratings (4 or 5) are more common than very negative ratings such as 2 or below. The average rating stands at `r mean_edx`, while the median rating is `r median_edx`. The ratings have a standard deviation of `r sd_edx`.
+
+A histogram of the ratings was generated, in order to better visualize the ratings distribution (Figure 2).
+
+```{r histogram of ratings}
+hist(edx$rating, main = "Figure 2: Histogram of Ratings")
+```
+
+In order to explore the timestamp variable, the timestamp was converted into a date. We can see that the movie ratings were made between January of 1995 and January of 2005, which is a long period of time. In order to see whether there is any relationship between the rating and the time of the rating, as was seen in the Netflix dataset, the date of the movie review was plotted against the rating (Figure 3) (Koren, 2009). 1995 was removed since only 2 reviews were made during this year and the average rating of 4 was much different than the ratings for other years. From this, we can see that the average rating fluctuates by year, with a possible slight decline overall.
+
+```{r convert to date, include=FALSE}
+if (!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+edx <- edx %>%
+  mutate(date = as_datetime(timestamp))
+```
+
+```{r min max of date, include = FALSE}
+min(edx$date)
+max(edx$date)
+```
+
+```{r graph date vs rating}
+mean_by_yr <- data.table(year = rep(NA, 11), avg_rating = rep(NA, 11), n = rep(NA, 11))
+mean_by_yr <- edx %>%
+  mutate(year = year(date)) %>%
+  group_by(year) %>%
+  summarize(avg_rating = mean(rating))
+mean_by_yr <- mean_by_yr %>%
+  filter(year != 1995)
+mean_by_yr %>% ggplot(aes(x = year, y = avg_rating)) +
+  geom_point() +
+  ggtitle("Figure 3: Rating vs. Time of Rating")
+```
+
+In order to explore whether or not there is any relationship between the genre of the movie and its rating, the average rating for each genre was calculated. It appears that there is a genre impact, as some genres are rated higher than others, with the highest rated genre being Crime|Mystery|Thriller with an average rating of 4.20 and the lowest genre being Adventure|Children|Drama with an average rating of 2.79.
+
+```{r eda genre}
+genres <- edx %>%
+  group_by(genres) %>%
+  summarize(n = n(),
+            avg_rating = mean(rating)) %>%
+  filter(n >= 10000)
+
+#top 10 genres by rating
+genres %>% top_n(10, avg_rating) %>%
+  arrange(desc(avg_rating))
+
+#bottom 10 genres by rating
+genres %>% top_n(10, -avg_rating) %>%
+  arrange(avg_rating)
+```
+
+
+If someone were to ask me to predict how much a movie rating would differ from the average rating, my first question would be "What is the movie?" For this reason, I thought it made sense to start with a model that looks at the impact that the specific movie has on the rating, since of course good movies will get better reviews than bad ones. The algorithm is: subtract the rating for movies with that particular feature from the mean rating, and take the mean of that difference as the impact of the feature. Then use that feature impact as a predictor. Next, repeat the process with the residuals of the mean and all other feature impacts already calculated from the algorithm. In this case, the feature impact we are looking at is the indiviual movie impact, so we subtract the rating for the individual movie from the mean rating, and then we take the mean of that.
+
+```{r calculate specific movie deviation}
+#calculate the expected rating deviation due to the specific film
+spec_movie_dev <- edx %>%
+	group_by(movieId) %>%
+	summarize(spec_movie_dev = mean(rating - mean_edx))
+
+#add specific movie deviation to edx table
+edx <- edx %>%
+  left_join(spec_movie_dev, by = "movieId")
+```
+
+
+If I had to predict how a person would rate a movie knowing the movie title, I would then want to know more about the rater and how they rate other movies. For this reason, the expected deviation from the mean rating due to the user was included next in my model.
+
+```{r calculate user deviation}
+#calculate the expected rating deviation due to the user	
+user_dev <- edx %>%
+	group_by(userId) %>%
+	summarize(user_dev = mean(rating - mean_edx - spec_movie_dev))
+	          
+#add user deviation to edx table
+edx <- edx %>%
+  left_join(user_dev, by = "userId")
+```
+
+Next I checked to see if regularization would improve my results. As Dr. Irizarry stated in his lectures, movies with few ratings are more likely to have large deviations from the mean (Irizarry, 2019). These extreme ratings given by only a few people are not representative of the rating that would be given by a larger number of people, and regularization can correct for this by penalizing ratings done by only a few people.
+
+```{r rmse define variables}
+#installs Metrics package for rmse calculation
+if(!require(Metrics)) install.packages("Metrics", repos = "http://cran.us.r-project.org")
+
+#if the predicted rating is between 0.5 and 5, give the predicted rating
+#otherwise check to see if the rating is over 5 and return 5 if so,
+#return 0.5 otherwise
+predicted_rating_initial <- ifelse((mean_edx + edx$spec_movie_dev + edx$user_dev) < 5 & 
+                                     (mean_edx + edx$spec_movie_dev + edx$user_dev) >= 0.5,
+                                      mean_edx + edx$spec_movie_dev +edx$user_dev,
+                                           ifelse((mean_edx + edx$spec_movie_dev +
+                                                  edx$user_dev) > 5, 5, 0.5))
+
+#calculates rmse
+train_rmse_initial <- rmse(predicted_rating_initial, edx$rating)
+```
+
+The RMSE before regularization is `r train_rmse_initial`. I believe a lower RMSE can be reached.
+
+```{r regularization to explore alpha}
+#define sequence of alphas to test
+alpha1 <- seq(0, 20, 2)
+
+#calculate regularized predictions for each alpha
+regularized_rmse <- sapply(alpha1, function(a) {
+  #calculate regularized specific movie deviation
+  regul_spec_movie_dev <- edx %>%
+	group_by(movieId) %>%
+	summarize(regul_spec_movie_dev = sum(rating - mean_edx)/(a + n()))
+  
+  #add specific movie deviation to edx table
+  edx <- edx %>%
+    left_join(regul_spec_movie_dev, by = "movieId")
+
+  #calculate regularized user deviation
+  regul_user_dev <- edx %>%
+	group_by(userId) %>%
+	summarize(regul_user_dev = sum(rating - mean_edx - regul_spec_movie_dev)/(a + n()))
+
+  #add user deviation to edx table
+  edx <- edx %>%
+    left_join(regul_user_dev, by = "userId")
+  
+  #calculate predicted rating for each movie
+  #if the predicted rating is between 0.5 and 5, give the predicted rating
+  #otherwise check to see if the rating is over 5 and return 5 if so,
+  #return 0.5 otherwise
+  regul_predicted_rating <- ifelse((mean_edx + edx$regul_spec_movie_dev + 
+                                      edx$regul_user_dev) < 5 & 
+                                     (mean_edx + edx$regul_spec_movie_dev +
+                                      edx$regul_user_dev) >= 0.5,
+                                      mean_edx + edx$regul_spec_movie_dev +
+                                      edx$regul_user_dev,
+                                           ifelse((mean_edx + edx$regul_spec_movie_dev +
+                                                  edx$regul_user_dev) > 5, 5, 0.5))
+  
+  #calculate rmse
+  return(rmse(regul_predicted_rating, edx$rating))
+}) 
+```
+
+From observing the vector, it can be seen that 0 is the lowest alpha. I then look closer to see if there is an optimal alpha close to zero.
+
+```{r}
+regularized_rmse
+```
+
+```{r regularization explore alphas near zero}
+alpha2 <- seq(0, 1, 0.1)
+
+regularized_rmse2 <- sapply(alpha2, function(a) {
+  #calculate regularized specific movie deviation
+  regul_spec_movie_dev <- edx %>%
+	group_by(movieId) %>%
+	summarize(regul_spec_movie_dev = sum(rating - mean_edx)/(a + n()))
+  
+  #add specific movie deviation to edx table
+  edx <- edx %>%
+    left_join(regul_spec_movie_dev, by = "movieId")
+
+  #calculate regularized user deviation
+  regul_user_dev <- edx %>%
+	group_by(userId) %>%
+	summarize(regul_user_dev = sum(rating - mean_edx - regul_spec_movie_dev)/(a + n()))
+
+  #add user deviation to edx table
+  edx <- edx %>%
+    left_join(regul_user_dev, by = "userId")
+
+  
+  #if the predicted rating is between 0.5 and 5, give the predicted rating
+  #otherwise check to see if the rating is over 5 and return 5 if so,
+  #return 0.5 otherwise
+  regul_predicted_rating <- ifelse((mean_edx + edx$regul_spec_movie_dev + 
+                                      edx$regul_user_dev) < 5 & 
+                                     (mean_edx + edx$regul_spec_movie_dev +
+                                      edx$regul_user_dev) >= 0.5,
+                                      mean_edx + edx$regul_spec_movie_dev +
+                                      edx$regul_user_dev,
+                                           ifelse((mean_edx + edx$regul_spec_movie_dev +
+                                                  edx$regul_user_dev) > 5, 5, 0.5))
+  
+  #calculate rmse
+  return(rmse(regul_predicted_rating, edx$rating))
+}) 
+```
+
+```{r choose optimal alpha}
+alpha_final <- alpha2[which.min(regularized_rmse2)]
+train_rmse_final <- min(regularized_rmse2)
+```
+
+```{r final model}
+#calculate regularized specific movie deviation in order to add to edx table
+  regul_spec_movie_dev <- edx %>%
+	group_by(movieId) %>%
+	summarize(regul_spec_movie_dev = sum(rating - mean_edx)/(alpha_final + n()))
+  
+#add specific movie deviation to edx table
+  edx <- edx %>%
+    left_join(regul_spec_movie_dev, by = "movieId")
+
+#calculate regularized user deviation in order to add to edx table
+  regul_user_dev <- edx %>%
+	group_by(userId) %>%
+	summarize(regul_user_dev = sum(rating - mean_edx - regul_spec_movie_dev)/
+	            (alpha_final + n()))
+
+#add user deviation to edx table
+  edx <- edx %>%
+    left_join(regul_user_dev, by = "userId")
+```
+
+It appears that the RMSE is only slightly reduced by regularization on the training set. This model gives an RMSE on the **training** set of `r train_rmse_final`. This is a relatively low RMSE, so it's time to try my luck on the test set. For example, the winners of the Netflix competition, who were tasked with improving Netflix's recommendation algorithm, had an RMSE of .8713 on their winning algorithm (Koren, 2009). The final model is Predicted Rating = mean_edx + regul_spec_movie_dev + regul_user_dev + epsilon, where regul_spec_movie_dev is the regularized specific movie impact, regul_user_dev is the regularized user impact, and epsilon represents the residuals.
+
+Results:
+
+```{r}
+#add user deviation to validation table to allow rmse calculation
+validation <- validation %>%
+  left_join(regul_spec_movie_dev, by = "movieId")
+
+#add user deviation to validation table to allow rmse calculation
+validation <- validation %>%
+  left_join(regul_user_dev, by = "userId")
+```
+
+```{r}
+#calculates predicted rating for each movie
+#if the predicted rating is between 0.5 and 5, give the predicted rating
+#otherwise check to see if the rating is over 5 and return 5 if so,
+#return 0.5 otherwise
+predicted_rating_final <- ifelse((mean_edx + validation$regul_spec_movie_dev + 
+                                      validation$regul_user_dev) < 5 & 
+                                     (mean_edx + validation$regul_spec_movie_dev +
+                                      validation$regul_user_dev) >= 0.5,
+                                      mean_edx + validation$regul_spec_movie_dev +
+                                      validation$regul_user_dev,
+                                           ifelse((mean_edx +
+                                                  validation$regul_spec_movie_dev +
+                                                  validation$regul_user_dev) > 5, 5, 0.5))
+rmse <- rmse(predicted_rating_final, validation$rating)
+```
+
+
+The RMSE of the final model was `r rmse`, meaning that the predicted rating deviated from the actual rating by `r rmse` on average in the test set.
+
+This is a relatively low RMSE. Again, the winners of the Netflix competition had an RMSE of .8713 on their winning algorithm (Koren, 2009).
+
+Below is a histogram of the predicted ratings, with a histogram of the actual ratings below it.
+
+```{r histograms of predicted vs. actual}
+#create histogram of predictions
+hist_pred <- hist(predicted_rating_final, main = "Figure 4: Histogram of Predicted Ratings")
+hist_real <- hist(validation$rating, main = "Figure 5: Histogram of Actual Ratings")
+```
+
+
+Conclusion:
+
+A model of rating prediction based on the regularized specific movie impact and the regularized user impact was developed using the edx portion of the Movielens dataset, and thie model was tested on the validation data set. This model was found to have an RMSE of `r rmse`. 
+
+While this RMSE is acceptable, there are limitations to this model. This model's predictions are not rounded to intervals of 0.5, such as the actual ratings are. As the project was only to provide predictions, and a prediction of 3.8, for example, is still very valuable, the predictions were not rounded. However, this would be an interesting area for future work. Another limitation of this model is that it does not take into account the genre of the movie or the time the rating was made. A potential area for future work involves incorporating these features into a model to further reduce RMSE.
+
+References:
+
+Irizarry, Rafael. Building the Recommendation System, n.d.
+———. Regularization, n.d.
+
+Koren, Yehuda. “The BellKor Solution to the Netflix Grand Prize,” 2009.
+
